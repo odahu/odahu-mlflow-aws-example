@@ -1,0 +1,125 @@
+{
+  "Comment": "ML Pipeline",
+  "StartAt": "Data Processing",
+  "States": {
+    "Data Processing": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "LaunchType": "FARGATE",
+        "Cluster": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/MyECSCluster",
+        "TaskDefinition": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/MyTaskDefinition:1"
+      },
+      "Next": "Start Model Training"
+    },
+    "Start Model Training": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Wait for training to be completed"
+    },
+    "Wait for training to be completed": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "Get Training Status"
+    },
+    "Is training Finished": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.trainingStatus",
+          "BooleanEquals": true,
+          "Next": "Check Model Metrics",
+          "Comment": "FInished"
+        },
+        {
+          "Next": "Training timeout reached"
+        }
+      ],
+      "Default": "Wait for training to be completed"
+    },
+    "Get Training Status": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Is training Finished"
+    },
+    "Check Model Metrics": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Deploy Model"
+        }
+      ],
+      "Default": "Send Notification That model not published"
+    },
+    "Deploy Model": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Model Deployed"
+    },
+    "Model Deployed": {
+      "Type": "Succeed"
+    },
+    "Send Notification That model not published": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "Message.$": "$"
+      },
+      "Next": "Model has not been selected for deployment"
+    },
+    "Model has not been selected for deployment": {
+      "Type": "Fail"
+    },
+    "Training timeout reached": {
+      "Type": "Fail"
+    }
+  }
+}
